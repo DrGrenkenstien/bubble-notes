@@ -39,7 +39,7 @@
         await fetch(`https://api.github.com/gists/${GIST_ID}`, {
           method: "PATCH",
           headers: {
-            Authorization: `token ${GITHUB_TOKEN}`,
+            Authorization: `Bearer ${GITHUB_TOKEN}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
