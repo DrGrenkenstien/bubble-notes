@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Floating Bubble Notes - Create draggable cloud-like notes">
+  <title>Bubble Notes</title>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useRef, useEffect } = React;
+
+    function BubbleNotesApp() {
+      const [notes, setNotes] = useState(() => {
+        const saved = localStorage.getItem('bubbleNotes');
+        return saved ? JSON.parse(saved) : [];
+      });
+      const [inputText, setInputText] = useState('');
+      const [draggedNote, setDraggedNote] = useState(null);
+      const [dragStartPos, setDragStartPos] = useState({ x: 0, y: 0 });
+      const [offset, setOffset] = useState({ x: 0, y: 0 });
+      const containerRef = useRef(null);
+
+      const colors = [
+        { bg: 'rgba(244, 114, 182, 0.15)', border: 'rgba(244, 114, 182, 0.6)', text: 'rgb(219, 39, 119)' },
+        { bg: 'rgba(167, 139, 250, 0.15)', border: 'rgba(167, 139, 250, 0.6)', text: 'rgb(124, 58, 237)' },
+        { bg: 'rgba(96, 165, 250, 0.15)', border: 'rgba(96, 165, 250, 0.6)', text: 'rgb(37, 99, 235)' },
+        { bg: 'rgba(74, 222, 128, 0.15)', border: 'rgba(74, 222, 128, 0.6)', text: 'rgb(22, 163, 74)' },
+        { bg: 'rgba(251, 191, 36, 0.15)', border: 'rgba(251, 191, 36, 0.6)', text: 'rgb(217, 119, 6)' },
+        { bg: 'rgba(251, 146, 60, 0.15)', border: 'rgba(251, 146, 60, 0.6)', text: 'rgb(234, 88, 12)' },
+        { bg: 'rgba(248, 113, 113, 0.15)', border: 'rgba(248, 113, 113, 0.6)', text: 'rgb(220, 38, 38)' },
+        { bg: 'rgba(129, 140, 248, 0.15)', border: 'rgba(129, 140, 248, 0.6)', text: 'rgb(79, 70, 229)' },
+      ];
+
+      // Save notes to localStorage whenever they change
+      useEffect(() => {
+        localStorage.setItem('bubbleNotes', JSON.stringify(notes));
+      }, [notes]);
+
+      const addNote = () => {
+        if (inputText.trim()) {
+          const newNote = {
+            id: Date.now(),
+            text: inputText,
+            x: Math.random() * (window.innerWidth - 150),
+            y: Math.random() * (window.innerHeight - 300) + 100,
+            color: colors[Math.floor(Math.random() * colors.length)],
+            cloudShape: Math.random() > 0.5 ? 'cloud1' : 'cloud2',
+          };
+          setNotes([...notes, newNote]);
+          setInputText('');
+        }
+      };
+
+      const deleteNote = (id) => {
+        setNotes(notes.filter(note => note.id !== id));
+      };
+
+      const handleTouchStart = (e, note) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const touch = e.touches[0];
+        setDraggedNote(note.id);
+        setDragStartPos({ x: touch.clientX, y: touch.clientY });
+        setOffset({
+          x: touch.clientX - note.x,
+          y: touch.clientY - note.y,
+        });
+      };
+
+      const handleTouchMove = (e) => {
+        if (draggedNote !== null) {
+          e.preventDefault();
+          const touch = e.touches[0];
+          const newX = touch.clientX - offset.x;
+          const newY = touch.clientY - offset.y;
+          
+          setNotes(prevNotes => prevNotes.map(note =>
+            note.id === draggedNote
+              ? { ...note, x: newX, y: newY }
+              : note
+          ));
+        }
+      };
+
+      const handleTouchEnd = (e, id) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const touch = e.changedTouches[0];
+        const distance = Math.sqrt(
+          Math.pow(touch.clientX - dragStartPos.x, 2) + 
+          Math.pow(touch.clientY - dragStartPos.y, 2)
+        );
+        
+        // Only delete if moved less than 10 pixels (threshold for tap vs drag)
+        if (distance < 10) {
+          deleteNote(id);
+        }
+        
+        setDraggedNote(null);
+      };
+
+      const handleMouseDown = (e, note) => {
+        e.stopPropagation();
+        e.preventDefault();
+        setDraggedNote(note.id);
+        setDragStartPos({ x: e.clientX, y: e.clientY });
+        setOffset({
+          x: e.clientX - note.x,
+          y: e.clientY - note.y,
+        });
+      };
+
+      const handleMouseMove = (e) => {
+        if (draggedNote !== null) {
+          const newX = e.clientX - offset.x;
+          const newY = e.clientY - offset.y;
+          
+          setNotes(prevNotes => prevNotes.map(note =>
+            note.id === draggedNote
+              ? { ...note, x: newX, y: newY }
+              : note
+          ));
+        }
+      };
+
+      const handleMouseUp = (e) => {
+        if (draggedNote !== null) {
+          const distance = Math.sqrt(
+            Math.pow(e.clientX - dragStartPos.x, 2) + 
+            Math.pow(e.clientY - dragStartPos.y, 2)
+          );
+          
+          // Only delete if moved less than 5 pixels (threshold for click vs drag)
+          if (distance < 5) {
+            deleteNote(draggedNote);
+          }
+        }
+        
+        setDraggedNote(null);
+      };
+
+      return (
+        <div
+          ref={containerRef}
+          className="fixed inset-0 bg-gradient-to-br from-indigo-100 via-purple-50 to-pink-100 overflow-hidden"
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+        >
+          {/* Header */}
+          <div className="fixed top-0 left-0 right-0 bg-white shadow-lg z-50">
+            <div className="p-4">
+              <h1 className="text-2xl font-bold text-gray-800 mb-3 text-center">
+                🫧 Bubble Notes
+              </h1>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && addNote()}
+                  placeholder="Type your note..."
+                  className="flex-1 px-4 py-2 border-2 border-purple-300 rounded-full focus:outline-none focus:border-purple-500"
+                />
+                <button
+                  onClick={addNote}
+                  className="px-6 py-2 bg-purple-500 text-white rounded-full font-semibold hover:bg-purple-600 active:scale-95 transition-transform"
+                >
+                  Add
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 mt-2 text-center">
+                Drag to move • Click/Tap to delete
+              </p>
+            </div>
+          </div>
+
+          {/* Floating Bubbles */}
+          {notes.map((note) => (
+            <div
+              key={note.id}
+              style={{
+                position: 'absolute',
+                left: `${note.x}px`,
+                top: `${note.y}px`,
+                touchAction: 'none',
+                backgroundColor: note.color.bg,
+                borderColor: note.color.border,
+                borderWidth: '3px',
+                borderStyle: 'solid',
+                borderRadius: note.cloudShape === 'cloud1' 
+                  ? '50% 60% 70% 60% / 60% 70% 50% 60%' 
+                  : '60% 50% 60% 70% / 70% 60% 60% 50%',
+              }}
+              onMouseDown={(e) => handleMouseDown(e, note)}
+              onTouchStart={(e) => handleTouchStart(e, note)}
+              onTouchEnd={(e) => handleTouchEnd(e, note.id)}
+              className="w-36 h-36 shadow-xl flex items-center justify-center cursor-move select-none transition-all hover:scale-105 active:scale-95 backdrop-blur-sm"
+            >
+              <p 
+                style={{ color: note.color.text }}
+                className="font-semibold text-sm text-center px-4 break-words"
+              >
+                {note.text}
+              </p>
+            </div>
+          ))}
+
+          {/* Empty State */}
+          {notes.length === 0 && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="text-center text-gray-400">
+                <div className="text-6xl mb-4">🫧</div>
+                <p className="text-lg">Create your first bubble note!</p>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.render(<BubbleNotesApp />, document.getElementById('root'));
+  </script>
+</body>
+</html>
