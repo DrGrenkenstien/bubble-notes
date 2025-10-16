@@ -16,13 +16,13 @@
 
     .note {
       position: absolute;
-      border: 2px solid rgba(135, 206, 250, 0.8);
-      border-radius: 50%;
-      background: rgba(255, 255, 255, 0.4);
+      border: 3px solid rgba(135, 206, 250, 0.8);
+      border-radius: 50% 60% 70% 60% / 60% 70% 50% 60%;
+      background: rgba(255, 255, 255, 0.35);
       box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
       backdrop-filter: blur(10px);
       width: 160px;
-      height: 100px;
+      height: 120px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -31,6 +31,7 @@
       text-align: center;
       cursor: grab;
       transition: transform 0.2s, box-shadow 0.2s;
+      touch-action: none;
     }
 
     .note:hover {
@@ -50,6 +51,7 @@
       border-radius: 12px;
       backdrop-filter: blur(10px);
       box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+      z-index: 1000;
     }
 
     input {
@@ -89,15 +91,14 @@
 
     // 🔥 Replace this config with yours
     const firebaseConfig = {
-  apiKey: "AIzaSyAECkFatJRJ8_k1Y7NtxOIJZKDWjKyHepI",
-  authDomain: "bubble-notes-e02f3.firebaseapp.com",
-  projectId: "bubble-notes-e02f3",
-  storageBucket: "bubble-notes-e02f3.firebasestorage.app",
-  messagingSenderId: "232646497795",
-  appId: "1:232646497795:web:4f2f6ef2bf661e53bee036",
-  measurementId: "G-4P4NTBFV33"
-};
-
+      apiKey: "AIzaSyAECkFatJRJ8_k1Y7NtxOIJZKDWjKyHepI",
+      authDomain: "bubble-notes-e02f3.firebaseapp.com",
+      projectId: "bubble-notes-e02f3",
+      storageBucket: "bubble-notes-e02f3.firebasestorage.app",
+      messagingSenderId: "232646497795",
+      appId: "1:232646497795:web:4f2f6ef2bf661e53bee036",
+      measurementId: "G-4P4NTBFV33"
+    };
 
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
@@ -118,9 +119,9 @@
     function BubbleNotesApp() {
       const [notes, setNotes] = useState([]);
       const [inputText, setInputText] = useState("");
-      const dragData = useRef({ noteId: null, offsetX: 0, offsetY: 0 });
+      const dragData = useRef({ noteId: null, offsetX: 0, offsetY: 0, moved: false });
 
-      // Real-time Firestore sync
+      // Firestore real-time sync
       useEffect(() => {
         const notesRef = collection(db, "notes");
         const unsub = onSnapshot(notesRef, (snapshot) => {
@@ -133,7 +134,7 @@
         return () => unsub();
       }, []);
 
-      // Add note
+      // Add a new note
       const addNote = async () => {
         if (!inputText.trim()) return;
         const x = Math.random() * (window.innerWidth - 180);
@@ -142,33 +143,46 @@
         setInputText("");
       };
 
-      // Delete on single tap/click
+      // Delete a note
       const deleteNote = async (id) => {
         await deleteDoc(doc(db, "notes", id));
       };
 
-      // Dragging logic
+      // Start dragging (desktop + mobile)
       const startDrag = (e, note) => {
         e.preventDefault();
+        const isTouch = e.type.startsWith("touch");
+        const point = isTouch ? e.touches[0] : e;
         dragData.current = {
           noteId: note.id,
-          offsetX: e.clientX - note.x,
-          offsetY: e.clientY - note.y,
+          offsetX: point.clientX - note.x,
+          offsetY: point.clientY - note.y,
+          moved: false,
         };
 
         const handleMove = (moveEvent) => {
-          const newX = moveEvent.clientX - dragData.current.offsetX;
-          const newY = moveEvent.clientY - dragData.current.offsetY;
+          const p = moveEvent.touches ? moveEvent.touches[0] : moveEvent;
+          const newX = p.clientX - dragData.current.offsetX;
+          const newY = p.clientY - dragData.current.offsetY;
+          dragData.current.moved = true;
 
-          // Update locally for smoother drag
           setNotes(prev =>
             prev.map(n => n.id === note.id ? { ...n, x: newX, y: newY } : n)
           );
         };
 
-        const handleUp = async (upEvent) => {
+        const handleEnd = async () => {
           document.removeEventListener("mousemove", handleMove);
-          document.removeEventListener("mouseup", handleUp);
+          document.removeEventListener("mouseup", handleEnd);
+          document.removeEventListener("touchmove", handleMove);
+          document.removeEventListener("touchend", handleEnd);
+
+          if (!dragData.current.moved) {
+            // tap/click delete
+            deleteNote(note.id);
+            return;
+          }
+
           const movedNote = notes.find(n => n.id === note.id);
           if (movedNote) {
             await updateDoc(doc(db, "notes", note.id), {
@@ -179,7 +193,9 @@
         };
 
         document.addEventListener("mousemove", handleMove);
-        document.addEventListener("mouseup", handleUp);
+        document.addEventListener("mouseup", handleEnd);
+        document.addEventListener("touchmove", handleMove, { passive: false });
+        document.addEventListener("touchend", handleEnd);
       };
 
       return (
@@ -200,7 +216,7 @@
               className="note"
               style={{ left: note.x, top: note.y }}
               onMouseDown={(e) => startDrag(e, note)}
-              onClick={() => deleteNote(note.id)}
+              onTouchStart={(e) => startDrag(e, note)}
             >
               {note.text}
             </div>
