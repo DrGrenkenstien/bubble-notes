@@ -3,210 +3,182 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Floating Bubble Notes - Create draggable cloud-like notes" />
   <title>Bubble Notes</title>
-  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #f7f7f7;
+      font-family: sans-serif;
+    }
+
+    .note {
+      position: absolute;
+      background: #fff8b5;
+      border-radius: 10px;
+      padding: 10px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+      width: 150px;
+      min-height: 100px;
+      cursor: grab;
+      user-select: none;
+      transition: transform 0.2s;
+    }
+
+    .note:hover {
+      transform: scale(1.03);
+    }
+
+    .controls {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 10px;
+    }
+
+    input {
+      padding: 8px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+    }
+
+    button {
+      background: #007aff;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 12px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #005fcc;
+    }
+  </style>
+
+  <!-- React + Babel -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Firebase -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
+    import {
+      getFirestore, collection, addDoc, deleteDoc,
+      doc, onSnapshot
+    } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+
+    // ✅ Replace this config with your Firebase project's config
+    const firebaseConfig = {
+  apiKey: "AIzaSyAECkFatJRJ8_k1Y7NtxOIJZKDWjKyHepI",
+  authDomain: "bubble-notes-e02f3.firebaseapp.com",
+  projectId: "bubble-notes-e02f3",
+  storageBucket: "bubble-notes-e02f3.firebasestorage.app",
+  messagingSenderId: "232646497795",
+  appId: "1:232646497795:web:4f2f6ef2bf661e53bee036",
+  measurementId: "G-4P4NTBFV33"
+};
+
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    // Expose Firestore globally so Babel script can use it
+    window.firebaseDB = db;
+    window.firebaseFns = { collection, addDoc, deleteDoc, doc, onSnapshot };
+  </script>
 </head>
+
 <body>
   <div id="root"></div>
 
   <script type="text/babel">
     const { useState, useEffect } = React;
-
-    // --- Firebase SDK Imports ---
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
-    import {
-      getFirestore,
-      collection,
-      onSnapshot,
-      addDoc,
-      deleteDoc,
-      doc,
-      setDoc,
-    } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
-
-    // --- Your Firebase Config ---
-    const firebaseConfig = {
-      apiKey: "AIzaSyAECkFatJRJ8_k1Y7NtxOIJZKDWjKyHepI",
-      authDomain: "bubble-notes-e02f3.firebaseapp.com",
-      projectId: "bubble-notes-e02f3",
-      storageBucket: "bubble-notes-e02f3.firebasestorage.app",
-      messagingSenderId: "232646497795",
-      appId: "1:232646497795:web:4f2f6ef2bf661e53bee036",
-      measurementId: "G-4P4NTBFV33",
-    };
-
-    // --- Initialize Firebase ---
-    const app = initializeApp(firebaseConfig);
-    const db = getFirestore(app);
-    const notesCollection = collection(db, "notes");
+    const { collection, addDoc, deleteDoc, doc, onSnapshot } = window.firebaseFns;
+    const db = window.firebaseDB;
 
     function BubbleNotesApp() {
       const [notes, setNotes] = useState([]);
       const [inputText, setInputText] = useState("");
-      const [draggedNote, setDraggedNote] = useState(null);
-      const [dragStartPos, setDragStartPos] = useState({ x: 0, y: 0 });
-      const [offset, setOffset] = useState({ x: 0, y: 0 });
 
-      const colors = [
-        { bg: "rgba(244,114,182,0.15)", border: "rgba(244,114,182,0.6)", text: "rgb(219,39,119)" },
-        { bg: "rgba(167,139,250,0.15)", border: "rgba(167,139,250,0.6)", text: "rgb(124,58,237)" },
-        { bg: "rgba(96,165,250,0.15)", border: "rgba(96,165,250,0.6)", text: "rgb(37,99,235)" },
-        { bg: "rgba(74,222,128,0.15)", border: "rgba(74,222,128,0.6)", text: "rgb(22,163,74)" },
-        { bg: "rgba(251,191,36,0.15)", border: "rgba(251,191,36,0.6)", text: "rgb(217,119,6)" },
-      ];
-
-      // 🔄 Real-time Firestore listener
+      // ✅ Fetch notes in real-time
       useEffect(() => {
-        const unsubscribe = onSnapshot(notesCollection, (snapshot) => {
-          const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-          setNotes(data);
+        const notesRef = collection(db, "notes");
+        const unsub = onSnapshot(notesRef, (snapshot) => {
+          const fetched = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          }));
+          setNotes(fetched);
         });
-        return () => unsubscribe();
+        return () => unsub();
       }, []);
 
-      // ➕ Add new note
+      // ✅ Add a note
       const addNote = async () => {
-        if (inputText.trim()) {
-          const newNote = {
-            text: inputText,
-            x: Math.random() * (window.innerWidth - 150),
-            y: Math.random() * (window.innerHeight - 300) + 100,
-            color: colors[Math.floor(Math.random() * colors.length)],
-          };
-          await addDoc(notesCollection, newNote);
-          setInputText("");
-        }
+        if (!inputText.trim()) return;
+        const x = Math.random() * (window.innerWidth - 160);
+        const y = Math.random() * (window.innerHeight - 200);
+        await addDoc(collection(db, "notes"), { text: inputText, x, y });
+        setInputText("");
       };
 
-      // ❌ Delete a note
+      // ✅ Delete a note
       const deleteNote = async (id) => {
         await deleteDoc(doc(db, "notes", id));
       };
 
-      // 🖱️ Drag handling
-      const handleMouseDown = (e, note) => {
-        e.stopPropagation();
-        setDraggedNote(note.id);
-        setDragStartPos({ x: e.clientX, y: e.clientY });
-        setOffset({ x: e.clientX - note.x, y: e.clientY - note.y });
-      };
+      // ✅ Dragging logic (local only for UX)
+      const handleDrag = (e, id) => {
+        e.preventDefault();
+        const note = e.target;
+        const shiftX = e.clientX - note.getBoundingClientRect().left;
+        const shiftY = e.clientY - note.getBoundingClientRect().top;
 
-      const handleMouseMove = (e) => {
-        if (draggedNote) {
-          const newX = e.clientX - offset.x;
-          const newY = e.clientY - offset.y;
-          setNotes((prev) =>
-            prev.map((n) => (n.id === draggedNote ? { ...n, x: newX, y: newY } : n))
-          );
-        }
-      };
+        const moveAt = (pageX, pageY) => {
+          note.style.left = pageX - shiftX + "px";
+          note.style.top = pageY - shiftY + "px";
+        };
 
-      const handleMouseUp = async (e) => {
-        if (draggedNote) {
-          const note = notes.find((n) => n.id === draggedNote);
-          const dist = Math.hypot(e.clientX - dragStartPos.x, e.clientY - dragStartPos.y);
-          if (dist < 5) {
-            await deleteNote(note.id);
-          } else {
-            await setDoc(doc(db, "notes", note.id), note);
-          }
-          setDraggedNote(null);
-        }
-      };
+        const onMouseMove = (event) => moveAt(event.pageX, event.pageY);
+        document.addEventListener("mousemove", onMouseMove);
 
-      // 👆 Touch (mobile) handling
-      const handleTouchStart = (e, note) => {
-        const touch = e.touches[0];
-        setDraggedNote(note.id);
-        setDragStartPos({ x: touch.clientX, y: touch.clientY });
-        setOffset({ x: touch.clientX - note.x, y: touch.clientY - note.y });
-      };
-
-      const handleTouchMove = (e) => {
-        if (draggedNote) {
-          const touch = e.touches[0];
-          const newX = touch.clientX - offset.x;
-          const newY = touch.clientY - offset.y;
-          setNotes((prev) =>
-            prev.map((n) => (n.id === draggedNote ? { ...n, x: newX, y: newY } : n))
-          );
-        }
-      };
-
-      const handleTouchEnd = async () => {
-        if (draggedNote) {
-          const note = notes.find((n) => n.id === draggedNote);
-          await setDoc(doc(db, "notes", note.id), note);
-          setDraggedNote(null);
-        }
+        note.onmouseup = () => {
+          document.removeEventListener("mousemove", onMouseMove);
+          note.onmouseup = null;
+        };
       };
 
       return (
-        <div
-          className="fixed inset-0 bg-gradient-to-br from-indigo-100 via-purple-50 to-pink-100 overflow-hidden"
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-        >
-          <div className="fixed top-0 left-0 right-0 bg-white shadow-lg z-50">
-            <div className="p-4">
-              <h1 className="text-2xl font-bold text-gray-800 mb-3 text-center">🫧 Bubble Notes</h1>
-              <div className="flex flex-col sm:flex-row gap-2 items-center">
-                <input
-                  type="text"
-                  value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
-                  onKeyPress={(e) => e.key === "Enter" && addNote()}
-                  placeholder="Type your note..."
-                  className="flex-1 px-4 py-2 border-2 border-purple-300 rounded-full focus:outline-none focus:border-purple-500"
-                />
-                <button
-                  onClick={addNote}
-                  className="px-6 py-2 bg-purple-500 text-white rounded-full font-semibold hover:bg-purple-600 active:scale-95 transition-transform"
-                >
-                  Add
-                </button>
-              </div>
-              <p className="text-xs text-gray-500 mt-2 text-center">Drag to move • Tap to delete</p>
-            </div>
-          </div>
-
-          {notes.map((note) => (
+        <>
+          {notes.map(note => (
             <div
               key={note.id}
-              style={{
-                position: "absolute",
-                left: `${note.x}px`,
-                top: `${note.y}px`,
-                touchAction: "none",
-                backgroundColor: note.color.bg,
-                borderColor: note.color.border,
-                borderWidth: "3px",
-                borderStyle: "solid",
-                borderRadius: "50% 60% 70% 60% / 60% 70% 50% 60%",
-              }}
-              onMouseDown={(e) => handleMouseDown(e, note)}
-              onTouchStart={(e) => handleTouchStart(e, note)}
-              className="w-36 h-36 shadow-xl flex items-center justify-center cursor-move select-none transition-all hover:scale-105 active:scale-95 backdrop-blur-sm"
+              className="note"
+              style={{ left: note.x, top: note.y }}
+              onMouseDown={(e) => handleDrag(e, note.id)}
             >
-              <p
-                style={{ color: note.color.text }}
-                className="font-semibold text-sm text-center px-4 break-words"
-              >
-                {note.text}
-              </p>
+              <div>{note.text}</div>
+              <button style={{ marginTop: "10px" }} onClick={() => deleteNote(note.id)}>🗑</button>
             </div>
           ))}
-        </div>
+
+          <div className="controls">
+            <input
+              placeholder="Write a note..."
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+            />
+            <button onClick={addNote}>Add</button>
+          </div>
+        </>
       );
     }
 
-    ReactDOM.render(<BubbleNotesApp />, document.getElementById("root"));
+    ReactDOM.createRoot(document.getElementById("root")).render(<BubbleNotesApp />);
   </script>
 </body>
 </html>
