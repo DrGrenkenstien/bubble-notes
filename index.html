@@ -89,7 +89,6 @@
       getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, updateDoc
     } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
 
-    // 🔥 Replace this config with yours
     const firebaseConfig = {
       apiKey: "AIzaSyAECkFatJRJ8_k1Y7NtxOIJZKDWjKyHepI",
       authDomain: "bubble-notes-e02f3.firebaseapp.com",
@@ -119,7 +118,7 @@
     function BubbleNotesApp() {
       const [notes, setNotes] = useState([]);
       const [inputText, setInputText] = useState("");
-      const dragData = useRef({ noteId: null, offsetX: 0, offsetY: 0, moved: false });
+      const dragData = useRef({ noteId: null, offsetX: 0, offsetY: 0, moved: false, lastX: 0, lastY: 0 });
 
       // Firestore real-time sync
       useEffect(() => {
@@ -148,16 +147,19 @@
         await deleteDoc(doc(db, "notes", id));
       };
 
-      // Start dragging (desktop + mobile)
+      // Start dragging
       const startDrag = (e, note) => {
         e.preventDefault();
         const isTouch = e.type.startsWith("touch");
         const point = isTouch ? e.touches[0] : e;
+
         dragData.current = {
           noteId: note.id,
           offsetX: point.clientX - note.x,
           offsetY: point.clientY - note.y,
           moved: false,
+          lastX: note.x,
+          lastY: note.y,
         };
 
         const handleMove = (moveEvent) => {
@@ -165,6 +167,8 @@
           const newX = p.clientX - dragData.current.offsetX;
           const newY = p.clientY - dragData.current.offsetY;
           dragData.current.moved = true;
+          dragData.current.lastX = newX;
+          dragData.current.lastY = newY;
 
           setNotes(prev =>
             prev.map(n => n.id === note.id ? { ...n, x: newX, y: newY } : n)
@@ -178,18 +182,14 @@
           document.removeEventListener("touchend", handleEnd);
 
           if (!dragData.current.moved) {
-            // tap/click delete
+            // simple tap → delete
             deleteNote(note.id);
             return;
           }
 
-          const movedNote = notes.find(n => n.id === note.id);
-          if (movedNote) {
-            await updateDoc(doc(db, "notes", note.id), {
-              x: movedNote.x,
-              y: movedNote.y,
-            });
-          }
+          // Update final position in Firestore
+          const { noteId, lastX, lastY } = dragData.current;
+          await updateDoc(doc(db, "notes", noteId), { x: lastX, y: lastY });
         };
 
         document.addEventListener("mousemove", handleMove);
