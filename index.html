@@ -111,121 +111,133 @@
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useEffect, useRef } = React;
-    const { collection, addDoc, deleteDoc, doc, onSnapshot, updateDoc } = window.firebaseFns;
-    const db = window.firebaseDB;
+  const { useState, useEffect, useRef } = React;
+  const { collection, addDoc, deleteDoc, doc, onSnapshot, updateDoc } = window.firebaseFns;
+  const db = window.firebaseDB;
 
-    function BubbleNotesApp() {
-      const [notes, setNotes] = useState([]);
-      const [inputText, setInputText] = useState("");
-      const dragData = useRef({ noteId: null, offsetX: 0, offsetY: 0, moved: false, lastX: 0, lastY: 0 });
+  function BubbleNotesApp() {
+    const [notes, setNotes] = useState([]);
+    const [inputText, setInputText] = useState("");
+    const dragData = useRef({ noteId: null, offsetX: 0, offsetY: 0, moved: false, lastX: 0, lastY: 0 });
+    const movingNoteId = useRef(null);
 
-      // Firestore real-time sync
-      useEffect(() => {
-        const notesRef = collection(db, "notes");
-        const unsub = onSnapshot(notesRef, (snapshot) => {
-          const fetched = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data(),
-          }));
-          setNotes(fetched);
-        });
-        return () => unsub();
-      }, []);
+    // 🔥 Firestore real-time sync
+    useEffect(() => {
+      const notesRef = collection(db, "notes");
+      const unsub = onSnapshot(notesRef, (snapshot) => {
+        const fetched = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
 
-      // Add a new note
-      const addNote = async () => {
-        if (!inputText.trim()) return;
-        const x = Math.random() * (window.innerWidth - 180);
-        const y = Math.random() * (window.innerHeight - 200);
-        await addDoc(collection(db, "notes"), { text: inputText, x, y });
-        setInputText("");
-      };
-
-      // Delete a note
-      const deleteNote = async (id) => {
-        await deleteDoc(doc(db, "notes", id));
-      };
-
-      // Start dragging
-      const startDrag = (e, note) => {
-        e.preventDefault();
-        const isTouch = e.type.startsWith("touch");
-        const point = isTouch ? e.touches[0] : e;
-
-        dragData.current = {
-          noteId: note.id,
-          offsetX: point.clientX - note.x,
-          offsetY: point.clientY - note.y,
-          moved: false,
-          lastX: note.x,
-          lastY: note.y,
-        };
-
-        const handleMove = (moveEvent) => {
-          const p = moveEvent.touches ? moveEvent.touches[0] : moveEvent;
-          const newX = p.clientX - dragData.current.offsetX;
-          const newY = p.clientY - dragData.current.offsetY;
-          dragData.current.moved = true;
-          dragData.current.lastX = newX;
-          dragData.current.lastY = newY;
-
-          setNotes(prev =>
-            prev.map(n => n.id === note.id ? { ...n, x: newX, y: newY } : n)
-          );
-        };
-
-        const handleEnd = async () => {
-          document.removeEventListener("mousemove", handleMove);
-          document.removeEventListener("mouseup", handleEnd);
-          document.removeEventListener("touchmove", handleMove);
-          document.removeEventListener("touchend", handleEnd);
-
-          if (!dragData.current.moved) {
-            // simple tap → delete
-            deleteNote(note.id);
-            return;
+        // ✅ Ignore Firestore updates for the note currently being dragged
+        setNotes(prev => {
+          if (movingNoteId.current) {
+            const movingId = movingNoteId.current;
+            const others = fetched.filter(n => n.id !== movingId);
+            const moving = prev.find(n => n.id === movingId);
+            return moving ? [...others, moving] : fetched;
           }
+          return fetched;
+        });
+      });
+      return () => unsub();
+    }, []);
 
-          // Update final position in Firestore
-          const { noteId, lastX, lastY } = dragData.current;
-          await updateDoc(doc(db, "notes", noteId), { x: lastX, y: lastY });
-        };
+    const addNote = async () => {
+      if (!inputText.trim()) return;
+      const x = Math.random() * (window.innerWidth - 180);
+      const y = Math.random() * (window.innerHeight - 200);
+      await addDoc(collection(db, "notes"), { text: inputText, x, y });
+      setInputText("");
+    };
 
-        document.addEventListener("mousemove", handleMove);
-        document.addEventListener("mouseup", handleEnd);
-        document.addEventListener("touchmove", handleMove, { passive: false });
-        document.addEventListener("touchend", handleEnd);
+    const deleteNote = async (id) => {
+      await deleteDoc(doc(db, "notes", id));
+    };
+
+    const startDrag = (e, note) => {
+      e.preventDefault();
+      const isTouch = e.type.startsWith("touch");
+      const point = isTouch ? e.touches[0] : e;
+
+      dragData.current = {
+        noteId: note.id,
+        offsetX: point.clientX - note.x,
+        offsetY: point.clientY - note.y,
+        moved: false,
+        lastX: note.x,
+        lastY: note.y,
       };
 
-      return (
-        <>
-          <div className="controls">
-            <input
-              placeholder="Write a note..."
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && addNote()}
-            />
-            <button onClick={addNote}>Add</button>
+      movingNoteId.current = note.id; // mark as being dragged
+
+      const handleMove = (moveEvent) => {
+        const p = moveEvent.touches ? moveEvent.touches[0] : moveEvent;
+        const newX = p.clientX - dragData.current.offsetX;
+        const newY = p.clientY - dragData.current.offsetY;
+        dragData.current.moved = true;
+        dragData.current.lastX = newX;
+        dragData.current.lastY = newY;
+
+        setNotes(prev =>
+          prev.map(n => n.id === note.id ? { ...n, x: newX, y: newY } : n)
+        );
+      };
+
+      const handleEnd = async () => {
+        document.removeEventListener("mousemove", handleMove);
+        document.removeEventListener("mouseup", handleEnd);
+        document.removeEventListener("touchmove", handleMove);
+        document.removeEventListener("touchend", handleEnd);
+
+        const { noteId, moved, lastX, lastY } = dragData.current;
+        movingNoteId.current = null; // reset
+
+        if (!moved) {
+          deleteNote(noteId);
+          return;
+        }
+
+        // ✅ Save final position to Firestore after drag ends
+        await updateDoc(doc(db, "notes", noteId), { x: lastX, y: lastY });
+      };
+
+      document.addEventListener("mousemove", handleMove);
+      document.addEventListener("mouseup", handleEnd);
+      document.addEventListener("touchmove", handleMove, { passive: false });
+      document.addEventListener("touchend", handleEnd);
+    };
+
+    return (
+      <>
+        <div className="controls">
+          <input
+            placeholder="Write a note..."
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addNote()}
+          />
+          <button onClick={addNote}>Add</button>
+        </div>
+
+        {notes.map(note => (
+          <div
+            key={note.id}
+            className="note"
+            style={{ left: note.x, top: note.y }}
+            onMouseDown={(e) => startDrag(e, note)}
+            onTouchStart={(e) => startDrag(e, note)}
+          >
+            {note.text}
           </div>
+        ))}
+      </>
+    );
+  }
 
-          {notes.map(note => (
-            <div
-              key={note.id}
-              className="note"
-              style={{ left: note.x, top: note.y }}
-              onMouseDown={(e) => startDrag(e, note)}
-              onTouchStart={(e) => startDrag(e, note)}
-            >
-              {note.text}
-            </div>
-          ))}
-        </>
-      );
-    }
+  ReactDOM.createRoot(document.getElementById("root")).render(<BubbleNotesApp />);
+</script>
 
-    ReactDOM.createRoot(document.getElementById("root")).render(<BubbleNotesApp />);
-  </script>
 </body>
 </html>
